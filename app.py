@@ -55,10 +55,10 @@ from streamlit_gsheets import GSheetsConnection
 # 建立 Google Sheets 連結
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-st.divider() # 畫一條分隔線
+st.divider() 
 st.header("📝 新增選股與交易紀錄")
 
-# 建立輸入表單
+# 使用正確的語法建立表單
 with st.form("trade_form"):
     col1, col2 = st.columns(2)
     with col1:
@@ -70,9 +70,12 @@ with st.form("trade_form"):
     
     s_note = st.text_area("技術分析理由 (例如：突破季線、量增價揚)")
     
-    submit = st.form_submit_with_button("儲存紀錄")
+    # 修正後的正確指令
+    submit = st.form_submit_button("儲存紀錄")
 
 if submit:
-    # 這裡未來會寫入 Google Sheets 的邏輯
-    st.success(f"已暫時紀錄：{s_id} {s_action} 於 {s_price}")
-    st.balloons() # 成功的小特效
+    if s_id: # 簡單檢查是否有輸入代碼
+        st.success(f"✅ 已暫時紀錄：{s_id} {s_action} 於 {s_price}")
+        st.balloons() 
+    else:
+        st.error("請輸入股票代碼再儲存！")

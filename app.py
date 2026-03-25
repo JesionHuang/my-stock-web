@@ -1,30 +1,56 @@
 import streamlit as st
-import plotly.express as px
+import yfinance as yf
 import pandas as pd
+import plotly.express as px
 
-st.title("📊 股票市場即時熱圖")
+st.title("📈 全球股市即時熱圖")
 
-# 1. 準備模擬數據 (未來可以串接 API 自動更新)
-# 這裡我們手動建立一些台股與美股的熱門標的作為範例
-data = {
-    "股票": ["台積電", "鴻海", "聯發科", "蘋果", "微軟", "輝達", "Google"],
-    "產業": ["半導體", "電子代工", "半導體", "科技終端", "軟體服務", "半導體", "軟體服務"],
-    "漲跌幅": [2.5, -1.2, 0.8, 1.5, -0.5, 4.2, 1.1],
-    "市值權重": [500, 150, 100, 400, 350, 450, 300]
-}
-df = pd.DataFrame(data)
+# 1. 定義你想追蹤的股票清單 (台股需加 .TW，美股直接輸入代碼)
+tickers = ["2330.TW", "2317.TW", "2454.TW", "AAPL", "TSLA", "NVDA", "MSFT", "GOOGL"]
 
-# 2. 建立熱圖邏輯
-fig = px.treemap(
-    df, 
-    path=[px.Constant("股票市場"), "產業", "股票"], # 層級：市場 -> 產業 -> 個股
-    values="市值權重", 
-    color="漲跌幅",
-    color_continuous_scale='RdYlGn', # 紅(跌)黃(平)綠(漲) 漸層
-    color_continuous_midpoint=0     # 以 0% 為顏色中心點
-)
+@st.cache_data(ttl=600) # 快取數據 10 分鐘，避免頻繁請求被 Yahoo 封鎖
+def get_real_data(ticker_list):
+    results = []
+    for t in ticker_list:
+        try:
+            stock = yf.Ticker(t)
+            info = stock.info
+            # 取得即時價格與昨日收盤價
+            price = info.get("regularMarketPrice") or info.get("currentPrice")
+            prev_close = info.get("regularMarketPreviousClose")
+            
+            if price and prev_close:
+                change = ((price - prev_close) / prev_close) * 100
+                results.append({
+                    "代碼": t,
+                    "名稱": info.get("shortName", t),
+                    "產業": info.get("sector", "其他"),
+                    "價格": price,
+                    "漲跌幅": round(change, 2),
+                    "市值": info.get("marketCap", 0)
+                })
+        except Exception as e:
+            st.error(f"抓取 {t} 失敗: {e}")
+    return pd.DataFrame(results)
 
-# 3. 在網頁上顯示
-st.plotly_chart(fig, use_container_width=True)
+# 執行抓取
+with st.spinner('正在從 Yahoo Finance 抓取最新數據...'):
+    df_real = get_real_data(tickers)
 
-st.info("💡 提示：點擊熱圖中的產業區塊可以放大觀察。")
+if not df_real.empty:
+    # 2. 繪製真實熱圖
+    fig = px.treemap(
+        df_real,
+        path=[px.Constant("我的觀察清單"), "產業", "名稱"],
+        values="市值",
+        color="漲跌幅",
+        hover_data=["價格"],
+        color_continuous_scale='RdYlGn', 
+        color_continuous_midpoint=0
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 顯示數據表格
+    st.dataframe(df_real[["名稱", "價格", "漲跌幅", "產業"]])
+else:
+    st.warning("目前無法獲取數據，請檢查網路或代碼是否正確。")

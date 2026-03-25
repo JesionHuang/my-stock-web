@@ -50,3 +50,29 @@ if not df_real.empty:
     st.plotly_chart(fig, use_container_width=True)
 else:
     st.error("目前無法獲取數據，請確認 GitHub 中的 requirements.txt 是否包含 yfinance")
+from streamlit_gsheets import GSheetsConnection
+
+# 建立 Google Sheets 連結
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+st.divider() # 畫一條分隔線
+st.header("📝 新增選股與交易紀錄")
+
+# 建立輸入表單
+with st.form("trade_form"):
+    col1, col2 = st.columns(2)
+    with col1:
+        s_id = st.text_input("股票代碼 (如 2330.TW)")
+        s_action = st.selectbox("動作", ["觀察中", "加倉", "平倉"])
+    with col2:
+        s_price = st.number_input("成交價格", value=0.0)
+        s_date = st.date_input("日期")
+    
+    s_note = st.text_area("技術分析理由 (例如：突破季線、量增價揚)")
+    
+    submit = st.form_submit_with_button("儲存紀錄")
+
+if submit:
+    # 這裡未來會寫入 Google Sheets 的邏輯
+    st.success(f"已暫時紀錄：{s_id} {s_action} 於 {s_price}")
+    st.balloons() # 成功的小特效

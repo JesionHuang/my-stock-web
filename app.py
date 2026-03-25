@@ -3,7 +3,10 @@ import yfinance as yf
 import pandas as pd
 import plotly.express as px
 
-st.title("📈 全球股市即時熱圖")
+# 顯示版本資訊，方便我們除錯
+# st.write(f"目前運行的 Streamlit 版本: {st.__version__}")
+
+st.title("📈 我的投資管理系統")
 
 # 先用少量的代碼測試，確保穩定
 tickers = ["2330.TW", "2317.TW", "AAPL", "TSLA", "NVDA"]

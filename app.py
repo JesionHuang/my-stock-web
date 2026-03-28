@@ -114,17 +114,26 @@ with st.form("trade_form", clear_on_submit=True):
     submit = st.form_submit_button("確認儲存紀錄")
 
 if submit:
-    # 建立一個乾淨的 DataFrame 直接推上去
-    df_init = pd.DataFrame([{
-        "Date": str(s_date),
-        "Stock_ID": s_id,
-        "Action": s_action,
-        "Price": s_price,
-        "Note": s_note
-    }])
-    # 使用 create 動作而不是 update，讓 Google 重新定義表頭
-    conn.create(worksheet="Sheet1", data=df_init)
-    st.success("初始化成功！")
+    if s_id:
+        try:
+            # 讀取並合併數據
+            existing_data = conn.read(worksheet="Sheet1", ttl=0)
+            new_row = pd.DataFrame([{
+                "Date": str(s_date),
+                "Stock_ID": str(s_id),
+                "Action": str(s_action),
+                "Price": float(s_price), # 強制轉為浮點數
+                "Note": str(s_note)
+            }])
+            updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+            conn.update(worksheet="Sheet1", data=updated_df)
+            st.success(f"✅ {s_id} 紀錄已存入 Google Sheets！")
+            st.balloons()
+            st.rerun() # 自動重新整理以顯示最新清單
+        except Exception as e:
+            st.error(f"儲存失敗：{e}")
+    else:
+        st.error("請輸入股票代碼！")
 
 # --- 第三部分：顯示歷史紀錄 ---
 

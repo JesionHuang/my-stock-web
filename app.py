@@ -96,6 +96,67 @@ if not df_heatmap.empty:
 else:
     st.warning("暫時無法獲取市場數據，請稍後再試。")
 
+import pandas as pd
+from datetime import date
+
+# --- 交易紀錄輸入服務 ---
+st.divider()
+st.header("📝 新增交易紀錄")
+
+# 建立兩欄式表單
+with st.form("transaction_form", clear_on_submit=True):
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        t_date = st.date_input("交易日期", date.today())
+        t_stock = st.text_input("股票代碼", placeholder="例如: 2330.TW 或 NVDA")
+        
+    with col2:
+        t_type = st.selectbox("交易類型", ["加倉", "平倉"])
+        t_price = st.number_input("成交單價", min_value=0.0, step=0.1)
+        
+    with col3:
+        t_qty = st.number_input("成交數量", min_value=1, step=1)
+        t_note = st.text_input("備註", placeholder="紀錄理由")
+
+    submit_button = st.form_submit_button("確認儲存紀錄")
+
+# --- 處理儲存邏輯 ---
+if submit_button:
+    if t_stock:
+        try:
+            # 1. 讀取現有資料
+            # 這裡假設你的工作表名稱為 "Data"
+            existing_data = conn.read(worksheet="Data", ttl=0)
+            
+            # 2. 準備新的一行數據
+            new_record = pd.DataFrame([{
+                "Date": str(t_date),
+                "Stock_ID": t_stock.upper().strip(),
+                "Action": t_type,
+                "Price": t_price,
+                "Quantity": t_qty,
+                "Note": t_note
+            }])
+            
+            # 3. 合併並更新回 Google Sheets
+            if existing_data is not None and not existing_data.empty:
+                updated_df = pd.concat([existing_data, new_record], ignore_index=True)
+            else:
+                updated_df = new_record
+                
+            conn.update(worksheet="Data", data=updated_df)
+            
+            st.success(f"✅ 已成功紀錄：{t_type} {t_stock} {t_qty}股 @ {t_price}")
+            st.balloons()
+            # 強制刷新以更新上方的損益計算
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"儲存失敗，請檢查 Google Sheets 連線或工作表名稱。錯誤：{e}")
+    else:
+        st.warning("請輸入股票代碼才能儲存！")
+
 # --- 第二部分：新增交易紀錄表單 ---
 
 st.divider() 

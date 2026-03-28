@@ -117,27 +117,30 @@ try:
 except Exception as e:
     st.error(f"損益計算讀取失敗：{e}")
 
-# --- 第三部分：新增交易紀錄表單 ---
+# --- 第三部分：新增交易紀錄表單 (已加入觀察中選項) ---
 st.divider()
-st.header("📝 新增交易紀錄")
+st.header("📝 新增選股與交易紀錄")
 
-with st.form("transaction_form_v3", clear_on_submit=True):
+with st.form("transaction_form_v4", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
     with col1:
-        t_date = st.date_input("交易日期", date.today())
+        t_date = st.date_input("紀錄日期", date.today())
         t_stock = st.text_input("股票代碼", placeholder="例如: 2330.TW")
     with col2:
-        t_type = st.selectbox("交易類型", ["加倉", "平倉", "觀察中"])
-        t_price = st.number_input("成交單價", min_value=0.0, step=0.1)
+        # 這裡加入了「觀察中」選項
+        t_type = st.selectbox("動作類型", ["觀察中", "加倉", "平倉"])
+        t_price = st.number_input("成交/觀察價格", min_value=0.0, step=0.1)
     with col3:
-        t_qty = st.number_input("成交數量", min_value=0, step=1, value=1)
-        t_note = st.text_input("分析備註")
+        # 如果是觀察中，數量可以預設為 0 或 1，不影響損益計算
+        t_qty = st.number_input("數量", min_value=0, step=1, value=0 if t_type == "觀察中" else 1)
+        t_note = st.text_input("分析備註 (例如：站上月線觀察)")
 
     submit_button = st.form_submit_button("確認儲存紀錄至 Sheet1")
 
 if submit_button:
     if t_stock:
         try:
+            # 讀取 Sheet1
             try:
                 existing_data = conn.read(worksheet="Sheet1", ttl=0)
             except:
@@ -155,11 +158,11 @@ if submit_button:
             updated_df = pd.concat([existing_data, new_record], ignore_index=True)
             conn.update(worksheet="Sheet1", data=updated_df)
             
-            st.success(f"✅ 已成功紀錄並存入 Sheet1！")
+            st.success(f"✅ 成功紀錄 {t_type}：{t_stock}")
             st.balloons()
             st.rerun()
         except Exception as e:
-            st.error(f"儲存失敗，請確認 Google Sheets 分頁名稱為 Sheet1。錯誤：{e}")
+            st.error(f"儲存失敗，錯誤詳情：{e}")
     else:
         st.warning("請輸入股票代碼！")
 

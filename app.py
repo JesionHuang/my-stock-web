@@ -127,7 +127,7 @@ if submit_button:
         try:
             # 1. 嘗試讀取資料，如果失敗就建立一個空的 DataFrame
             try:
-                existing_data = conn.read(worksheet="Data", ttl=0)
+                existing_data = conn.read(worksheet="Sheet1", ttl=0)
             except:
                 existing_data = pd.DataFrame(columns=["Date", "Stock_ID", "Action", "Price", "Quantity", "Note"])
             
@@ -158,7 +158,7 @@ if submit_button:
         except Exception as e:
             # 這裡會顯示更詳細的錯誤資訊
             st.error(f"⚠️ 發生錯誤：{e}")
-            st.info("請確認試算表左下角的分頁名稱是否真的改成了 Data")
+            st.info("請確認試算表左下角的分頁名稱是否真的改成了 Sheet1")
     else:
         st.warning("請輸入股票代碼！")
 # --- 第二部分：新增交易紀錄表單 ---

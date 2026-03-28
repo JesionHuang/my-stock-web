@@ -102,3 +102,40 @@ if submit:
         st.balloons()
     else:
         st.error("請輸入股票代碼！")
+st.divider()
+st.header("📜 歷史交易與選股紀錄")
+
+# 1. 從 Google Sheets 讀取最新數據
+# ttl=0 代表不使用快取，確保每次都能看到最新存入的資料
+try:
+    df_history = conn.read(worksheet="Sheet1", ttl=0)
+    
+    if not df_history.empty:
+        # 2. 資料預處理：按日期排序（由新到舊）
+        df_history['Date'] = pd.to_datetime(df_history['Date'])
+        df_history = df_history.sort_values(by='Date', ascending=False)
+        
+        # 3. 美化顯示表格
+        # 使用 st.dataframe 可以讓用戶自行縮放、排序或搜尋
+        st.dataframe(
+            df_history,
+            column_config={
+                "Date": st.column_config.DateColumn("交易日期"),
+                "Stock_ID": "股票代碼",
+                "Action": "動作",
+                "Price": st.column_config.NumberColumn("成交價格", format="$%.2f"),
+                "Note": "技術分析備註"
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # 4. 簡單的數據統計（加分功能）
+        total_trades = len(df_history)
+        st.caption(f"目前總計共有 {total_trades} 筆紀錄")
+        
+    else:
+        st.info("目前尚無歷史紀錄，請先在上方表單新增第一筆資料。")
+
+except Exception as e:
+    st.error(f"讀取紀錄失敗，請檢查 Google Sheets 連結設定。錯誤訊息: {e}")

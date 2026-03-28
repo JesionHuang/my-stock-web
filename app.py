@@ -73,9 +73,32 @@ with st.form("trade_form"):
     # 修正後的正確指令
     submit = st.form_submit_button("儲存紀錄")
 
+from streamlit_gsheets import GSheetsConnection
+
+# 建立連結
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- 這裡是你之前的表單代碼 ---
+
 if submit:
-    if s_id: # 簡單檢查是否有輸入代碼
-        st.success(f"✅ 已暫時紀錄：{s_id} {s_action} 於 {s_price}")
-        st.balloons() 
+    if s_id:
+        # 1. 先讀取現有的資料
+        existing_data = conn.read(worksheet="Sheet1", usecols=[0,1,2,3,4], ttl=0)
+        
+        # 2. 準備新的一行資料
+        new_row = pd.DataFrame([{
+            "Date": str(s_date),
+            "Stock_ID": s_id,
+            "Action": s_action,
+            "Price": s_price,
+            "Note": s_note
+        }])
+        
+        # 3. 合併資料並寫回 Google Sheets
+        updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+        conn.update(worksheet="Sheet1", data=updated_df)
+        
+        st.success(f"✅ 資料已成功存入 Google Sheets！")
+        st.balloons()
     else:
-        st.error("請輸入股票代碼再儲存！")
+        st.error("請輸入股票代碼！")

@@ -83,7 +83,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if submit:
     if s_id:
         # 1. 先讀取現有的資料
-        existing_data = conn.read(worksheet="Sheet1", usecols=[0,1,2,3,4], ttl=0)
+        existing_data = conn.read(worksheet="工作表1", usecols=[0,1,2,3,4], ttl=0)
         
         # 2. 準備新的一行資料
         new_row = pd.DataFrame([{
@@ -96,7 +96,7 @@ if submit:
         
         # 3. 合併資料並寫回 Google Sheets
         updated_df = pd.concat([existing_data, new_row], ignore_index=True)
-        conn.update(worksheet="Sheet1", data=updated_df)
+        conn.update(worksheet="工作表1", data=updated_df)
         
         st.success(f"✅ 資料已成功存入 Google Sheets！")
         st.balloons()

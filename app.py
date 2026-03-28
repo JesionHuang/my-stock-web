@@ -116,22 +116,37 @@ with st.form("trade_form", clear_on_submit=True):
 if submit:
     if s_id:
         try:
-            # 讀取並合併數據
-            existing_data = conn.read(worksheet="Sheet1", ttl=0)
-            new_row = pd.DataFrame([{
+            # 1. 準備這一筆新資料
+            new_data = pd.DataFrame([{
                 "Date": str(s_date),
-                "Stock_ID": str(s_id),
+                "Stock_ID": str(s_id).upper(), # 強制轉大寫
                 "Action": str(s_action),
-                "Price": float(s_price), # 強制轉為浮點數
+                "Price": float(s_price),
                 "Note": str(s_note)
             }])
-            updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+            
+            # 2. 嘗試讀取現有資料
+            try:
+                # 注意：這裡 worksheet 統一名稱為 "Sheet1"
+                existing_df = conn.read(worksheet="Data", ttl=0)
+                # 如果讀取成功且有資料，就合併
+                if existing_df is not None and not existing_df.empty:
+                    updated_df = pd.concat([existing_df, new_data], ignore_index=True)
+                else:
+                    updated_df = new_data
+            except:
+                # 如果讀取失敗（例如表是空的），就直接用新資料
+                updated_df = new_data
+
+            # 3. 強制推送到 Google Sheets (這步最關鍵，使用 create 重新定義結構)
             conn.update(worksheet="Sheet1", data=updated_df)
-            st.success(f"✅ {s_id} 紀錄已存入 Google Sheets！")
+            
+            st.success(f"✅ 成功存入！代碼：{s_id}")
             st.balloons()
-            st.rerun() # 自動重新整理以顯示最新清單
+            st.rerun() # 重新整理頁面顯示新結果
+            
         except Exception as e:
-            st.error(f"儲存失敗：{e}")
+            st.error(f"⚠️ 儲存仍有問題，請檢查 Secrets 裡的網址。錯誤詳情：{e}")
     else:
         st.error("請輸入股票代碼！")
 

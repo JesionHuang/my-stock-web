@@ -88,36 +88,33 @@ if not df_heatmap.empty:
     
     # 美化圖表設定
     if not df_heatmap.empty:
-    # --- 新增：建立顯示標籤 ---
-    # 我們將名稱與漲跌幅結合，加上 % 符號
+    # 注意：下面這幾行前面都要有 4 個空格（或一個 Tab）
     df_heatmap["顯示標籤"] = df_heatmap.apply(
         lambda row: f"{row['名稱']}<br>{'+' if row['漲跌幅'] > 0 else ''}{row['漲跌幅']}%", 
         axis=1
     )
 
-    # 2. 繪製熱圖
+    # 繪製熱圖的代碼也要縮進
     fig = px.treemap(
         df_heatmap,
-        # 注意：這裡的 path 最後一層要改成我們剛建立的 "顯示標籤"
         path=[px.Constant("全球市場"), "類別", "顯示標籤"],
         values="權重市值",
         color="漲跌幅",
-        hover_data=["價格"],
         color_continuous_scale='RdYlGn', 
         color_continuous_midpoint=0,
         range_color=[-4, 4]
     )
-    
-    # --- 新增：調整文字顯示格式 ---
+
+    # 設定文字顯示的代碼也要縮進
     fig.update_traces(
-        textinfo="label", # 只顯示我們自定義的標籤
-        texttemplate="%{label}", # 確保顯示完整文字
-        hovertemplate='<b>%{label}</b><br>價格: %{customdata[0]}', # 滑鼠指過去的顯示
-        textfont=dict(size=15) # 調整字體大小，讓數字更清楚
+        textinfo="label",
+        texttemplate="%{label}",
+        textfont=dict(size=15)
     )
 
-    fig.update_layout(margin=dict(t=30, l=10, r=10, b=10))
     st.plotly_chart(fig, use_container_width=True)
+else:
+    st.error("無法獲取市場數據。")
     
     # 顯示數據明細
     with st.expander("查看數據明細"):

@@ -125,38 +125,42 @@ with st.form("transaction_form", clear_on_submit=True):
 if submit_button:
     if t_stock:
         try:
-            # 1. 讀取現有資料
-            # 這裡假設你的工作表名稱為 "Data"
-            existing_data = conn.read(worksheet="Data", ttl=0)
+            # 1. 嘗試讀取資料，如果失敗就建立一個空的 DataFrame
+            try:
+                existing_data = conn.read(worksheet="Data", ttl=0)
+            except:
+                existing_data = pd.DataFrame(columns=["Date", "Stock_ID", "Action", "Price", "Quantity", "Note"])
             
             # 2. 準備新的一行數據
             new_record = pd.DataFrame([{
                 "Date": str(t_date),
                 "Stock_ID": t_stock.upper().strip(),
                 "Action": t_type,
-                "Price": t_price,
-                "Quantity": t_qty,
-                "Note": t_note
+                "Price": float(t_price),
+                "Quantity": int(t_qty),
+                "Note": str(t_note)
             }])
             
-            # 3. 合併並更新回 Google Sheets
+            # 3. 合併數據 (確保即使 existing_data 是 None 也能跑)
             if existing_data is not None and not existing_data.empty:
+                # 確保欄位一致性
                 updated_df = pd.concat([existing_data, new_record], ignore_index=True)
             else:
                 updated_df = new_record
                 
+            # 4. 更新回 Google Sheets
             conn.update(worksheet="Data", data=updated_df)
             
-            st.success(f"✅ 已成功紀錄：{t_type} {t_stock} {t_qty}股 @ {t_price}")
+            st.success(f"✅ 已成功紀錄！")
             st.balloons()
-            # 強制刷新以更新上方的損益計算
             st.rerun()
             
         except Exception as e:
-            st.error(f"儲存失敗，請檢查 Google Sheets 連線或工作表名稱。錯誤：{e}")
+            # 這裡會顯示更詳細的錯誤資訊
+            st.error(f"⚠️ 發生錯誤：{e}")
+            st.info("請確認試算表左下角的分頁名稱是否真的改成了 Data")
     else:
-        st.warning("請輸入股票代碼才能儲存！")
-
+        st.warning("請輸入股票代碼！")
 # --- 第二部分：新增交易紀錄表單 ---
 
 st.divider() 

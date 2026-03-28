@@ -117,63 +117,110 @@ try:
 except Exception as e:
     st.error(f"損益計算讀取失敗：{e}")
 
-# --- 第三部分：新增交易紀錄表單 (已加入觀察中選項) ---
+# --- 第三部分：新增交易紀錄表單 (含當日行情自動抓取) ---
 st.divider()
-st.header("📝 新增選股與交易紀錄")
+st.header("📝 新增選股與交易紀錄 (含當日行情)")
 
-with st.form("transaction_form_v4", clear_on_submit=True):
+with st.form("transaction_form_v5", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
     with col1:
         t_date = st.date_input("紀錄日期", date.today())
         t_stock = st.text_input("股票代碼", placeholder="例如: 2330.TW")
     with col2:
-        # 這裡加入了「觀察中」選項
         t_type = st.selectbox("動作類型", ["觀察中", "加倉", "平倉"])
-        t_price = st.number_input("成交/觀察價格", min_value=0.0, step=0.1)
+        t_price = st.number_input("我的成交/觀察價", min_value=0.0, step=0.1)
     with col3:
-        # 如果是觀察中，數量可以預設為 0 或 1，不影響損益計算
         t_qty = st.number_input("數量", min_value=0, step=1, value=0 if t_type == "觀察中" else 1)
-        t_note = st.text_input("分析備註 (例如：站上月線觀察)")
+        t_note = st.text_input("分析備註")
 
-    submit_button = st.form_submit_button("確認儲存紀錄至 Sheet1")
+    submit_button = st.form_submit_button("確認儲存紀錄並抓取行情")
 
 if submit_button:
     if t_stock:
         try:
-            # 讀取 Sheet1
+            # A. 自動抓取當日行情數據
+            with st.spinner(f"正在抓取 {t_stock} 當日行情..."):
+                tk = yf.Ticker(t_stock.upper().strip())
+                # 抓取最近 1 天的數據
+                hist = tk.history(period="1d")
+                if not hist.empty:
+                    day_high = round(hist['High'].iloc[-1], 2)
+                    day_low = round(hist['Low'].iloc[-1], 2)
+                    day_close = round(hist['Close'].iloc[-1], 2)
+                    # 計算漲跌幅 (需抓取前一日收盤)
+                    prev_hist = tk.history(period="2d")
+                    if len(prev_hist) >= 2:
+                        prev_close = prev_hist['Close'].iloc[-2]
+                        day_change = f"{round(((day_close - prev_close) / prev_close) * 100, 2)}%"
+                    else:
+                        day_change = "N/A"
+                else:
+                    day_high, day_low, day_close, day_change = 0, 0, 0, "N/A"
+
+            # B. 讀取與合併資料
             try:
                 existing_data = conn.read(worksheet="Sheet1", ttl=0)
             except:
-                existing_data = pd.DataFrame(columns=["Date", "Stock_ID", "Action", "Price", "Quantity", "Note"])
+                existing_data = pd.DataFrame()
             
             new_record = pd.DataFrame([{
                 "Date": str(t_date),
                 "Stock_ID": t_stock.upper().strip(),
                 "Action": t_type,
-                "Price": float(t_price),
+                "My_Price": float(t_price),
                 "Quantity": int(t_qty),
+                "Day_High": day_high,
+                "Day_Low": day_low,
+                "Day_Close": day_close,
+                "Day_Change": day_change,
                 "Note": str(t_note)
             }])
             
             updated_df = pd.concat([existing_data, new_record], ignore_index=True)
             conn.update(worksheet="Sheet1", data=updated_df)
             
-            st.success(f"✅ 成功紀錄 {t_type}：{t_stock}")
+            st.success(f"✅ 成功儲存！已自動記錄 {t_stock} 當日行情：高 {day_high} / 低 {day_low}")
             st.balloons()
             st.rerun()
         except Exception as e:
-            st.error(f"儲存失敗，錯誤詳情：{e}")
+            st.error(f"儲存或抓取行情失敗：{e}")
     else:
         st.warning("請輸入股票代碼！")
 
-# --- 第四部分：歷史紀錄表格 ---
+# --- 第四部分：歷史紀錄表格 (含篩選器) ---
 st.divider()
-st.header("📜 歷史交易紀錄 (Sheet1)")
+st.header("📜 歷史紀錄查詢")
+
 try:
     df_history = conn.read(worksheet="Sheet1", ttl=0)
     if df_history is not None and not df_history.empty:
-        st.dataframe(df_history.sort_values(by='Date', ascending=False), use_container_width=True, hide_index=True)
+        # 1. 在表格上方放篩選器
+        all_actions = df_history['Action'].unique().tolist()
+        selected_actions = st.multiselect("🔍 篩選動作類型", all_actions, default=all_actions)
+        
+        # 2. 執行篩選
+        filtered_df = df_history[df_history['Action'].isin(selected_actions)]
+        
+        # 3. 排序與顯示
+        filtered_df = filtered_df.sort_values(by='Date', ascending=False)
+        
+        st.dataframe(
+            filtered_df,
+            column_config={
+                "Date": "日期",
+                "Stock_ID": "代碼",
+                "Action": "動作",
+                "My_Price": st.column_config.NumberColumn("成交/觀察價", format="$%.2f"),
+                "Day_High": "當日最高",
+                "Day_Low": "當日最低",
+                "Day_Close": "當日收盤",
+                "Day_Change": "當日漲跌",
+                "Note": "分析備註"
+            },
+            hide_index=True,
+            use_container_width=True
+        )
     else:
-        st.info("尚無歷史紀錄。")
-except:
-    st.info("無法讀取歷史紀錄。")
+        st.info("尚無紀錄。")
+except Exception as e:
+    st.info(f"讀取表格時發生微小錯誤（可能是 Sheet1 欄位尚未更新）：{e}")

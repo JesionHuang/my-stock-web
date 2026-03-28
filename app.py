@@ -120,10 +120,10 @@ if submit:
             existing_data = conn.read(worksheet="Sheet1", ttl=0)
             new_row = pd.DataFrame([{
                 "Date": str(s_date),
-                "Stock_ID": s_id,
-                "Action": s_action,
-                "Price": s_price,
-                "Note": s_note
+                "Stock_ID": str(s_id),
+                "Action": str(s_action),
+                "Price": float(s_price), # 強制轉為浮點數
+                "Note": str(s_note)
             }])
             updated_df = pd.concat([existing_data, new_row], ignore_index=True)
             conn.update(worksheet="Sheet1", data=updated_df)

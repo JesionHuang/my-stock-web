@@ -9,7 +9,7 @@ import plotly.express as px
 st.title("📈 我的投資管理系統")
 
 # 先用少量的代碼測試，確保穩定
-tickers = ["2330.TW", "2317.TW", "AAPL", "TSLA", "NVDA"]
+tickers = ["2330.TW", "2317.TW", "TWII", "Dow Jones U.S. Large-Cap Total Stock Market Index", "NVDA"]
 
 @st.cache_data(ttl=600)
 def get_real_data(ticker_list):

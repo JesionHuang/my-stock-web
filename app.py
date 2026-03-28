@@ -61,14 +61,15 @@ with st.spinner('正在同步全球市場數據...'):
     df_heatmap = get_market_heatmap_data(market_targets)
 
 if not df_heatmap.empty:
-    # 建立顯示標籤
+    # 建立更簡潔的標籤，節省空間
     df_heatmap["顯示標籤"] = df_heatmap.apply(
-        lambda row: f"{row['名稱']}<br>{'+' if row['漲跌幅'] > 0 else ''}{row['漲跌幅']}%", axis=1
+        lambda row: f"{row['名稱']}<br><b>{'+' if row['漲跌幅'] > 0 else ''}{row['漲跌幅']}%</b>", 
+        axis=1
     )
 
     fig = px.treemap(
         df_heatmap,
-        path=[px.Constant("全球市場"), "類別", "顯示標籤"],
+        path=["類別", "顯示標籤"], # 移除 px.Constant("全球市場")，讓方塊更大
         values="權重市值",
         color="漲跌幅",
         color_continuous_scale='RdYlGn', 
@@ -79,9 +80,15 @@ if not df_heatmap.empty:
     fig.update_traces(
         textinfo="label",
         texttemplate="%{label}",
-        textfont=dict(size=16)
+        textfont=dict(size=22), # 這裡設定大字級
+        insidetextfont=dict(size=22)
     )
-    fig.update_layout(margin=dict(t=30, l=10, r=10, b=10))
+
+    # 強制設定圖表高度，解決「字太小」的根本問題
+    fig.update_layout(
+        height=700, 
+        margin=dict(t=10, l=10, r=10, b=10)
+    )
     st.plotly_chart(fig, use_container_width=True)
     
     with st.expander("📊 查看即時行情明細"):

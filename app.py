@@ -86,7 +86,7 @@ if not df_heatmap.empty:
 
     # 強制設定圖表高度，解決「字太小」的根本問題
     fig.update_layout(
-        height=700, 
+        height=500, 
         margin=dict(t=10, l=10, r=10, b=10)
     )
     st.plotly_chart(fig, use_container_width=True)

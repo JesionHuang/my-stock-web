@@ -179,3 +179,65 @@ try:
         st.info("目前尚無歷史紀錄。")
 except Exception as e:
     st.error(f"讀取紀錄失敗，請檢查設定：{e}")
+st.divider()
+st.header("💰 當前持倉損益分析")
+
+try:
+    df_calc = conn.read(worksheet="Data", ttl=0)
+    
+    if not df_calc.empty:
+        # 1. 基礎數據清理
+        df_calc['Price'] = pd.to_numeric(df_calc['Price'])
+        
+        # 2. 彙總每一支股票的持倉狀況
+        summary = []
+        for stock_id in df_calc['Stock_ID'].unique():
+            df_stock = df_calc[df_calc['Stock_ID'] == stock_id]
+            
+            # 簡單邏輯：加倉視為買入，平倉視為賣出（這裡假設每次動作單位為1，你可以未來加入數量欄位）
+            # 目前先計算平均成本
+            buy_prices = df_stock[df_stock['Action'] == "加倉"]['Price']
+            if not buy_prices.empty:
+                avg_cost = buy_prices.mean()
+                
+                # 3. 抓取最新市價
+                try:
+                    ticker = yf.Ticker(stock_id)
+                    current_price = ticker.fast_info['last_price']
+                except:
+                    current_price = avg_cost # 抓不到時暫以成本計
+                
+                # 4. 計算損益
+                profit_loss = current_price - avg_cost
+                roi = (profit_loss / avg_cost) * 100
+                
+                summary.append({
+                    "股票代碼": stock_id,
+                    "平均成本": round(avg_cost, 2),
+                    "目前市價": round(current_price, 2),
+                    "單股損益": round(profit_loss, 2),
+                    "投報率 (ROI)": f"{round(roi, 2)}%"
+                })
+        
+        # 5. 顯示損益表
+        if summary:
+            df_summary = pd.DataFrame(summary)
+            
+            # 使用 st.column 製作儀表板亮點
+            total_pnl = df_summary['單股損益'].sum()
+            col_m1, col_m2 = st.columns(2)
+            col_m1.metric("總累計損益 (單股計)", f"${round(total_pnl, 2)}", f"{round(total_pnl, 2)}")
+            
+            st.dataframe(
+                df_summary,
+                column_config={
+                    "投報率 (ROI)": st.column_config.TextColumn("投報率", help="綠色代表獲利，紅色代表虧損"),
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+    else:
+        st.info("尚無持倉數據可供計算。")
+
+except Exception as e:
+    st.error(f"損益計算發生錯誤：{e}")

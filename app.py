@@ -64,34 +64,37 @@ if not df_heatmap.empty:
 else:
     st.warning("暫時無法獲取市場數據。")
 
-# --- 第二部分：當前持倉損益分析 ---
+# --- 第二部分：當前持倉損益分析 (修正欄位名稱版) ---
 st.divider()
 st.header("💰 當前持倉損益分析")
 
 try:
-    # 確保從 Sheet1 讀取
     df_calc = conn.read(worksheet="Sheet1", ttl=0)
     
     if df_calc is not None and not df_calc.empty:
-        # 統一轉大寫並確保數值化
-        df_calc['Stock_ID'] = df_calc['Stock_ID'].str.upper()
-        df_calc['Price'] = pd.to_numeric(df_calc['Price'], errors='coerce')
-        df_calc['Quantity'] = pd.to_numeric(df_calc['Quantity'], errors='coerce').fillna(0)
+        # 1. 確保欄位名稱正確 (將 My_Price 轉為計算用的數值)
+        # 如果你的 Sheets 裡還有舊的 'Price' 欄位，這行會優先抓 My_Price
+        target_col = 'My_Price' if 'My_Price' in df_calc.columns else 'Price'
         
+        df_calc['Calc_Price'] = pd.to_numeric(df_calc[target_col], errors='coerce').fillna(0)
+        df_calc['Quantity'] = pd.to_numeric(df_calc['Quantity'], errors='coerce').fillna(0)
+        df_calc['Stock_ID'] = df_calc['Stock_ID'].astype(str).str.upper()
+
         summary = []
         for stock_id in df_calc['Stock_ID'].unique():
-            if not stock_id: continue
+            if not stock_id or stock_id == "NAN": continue
+            
             df_stock = df_calc[df_calc['Stock_ID'] == stock_id]
             
-            # 計算庫存：加倉(+) 平倉(-)
+            # 只計算「加倉」與「平倉」，排除「觀察中」
             buy_q = df_stock[df_stock['Action'] == "加倉"]['Quantity'].sum()
             sell_q = df_stock[df_stock['Action'] == "平倉"]['Quantity'].sum()
             current_q = buy_q - sell_q
             
             if current_q > 0:
-                # 計算平均成本
+                # 計算平均成本 (使用新的 Calc_Price)
                 buys = df_stock[df_stock['Action'] == "加倉"]
-                avg_cost = (buys['Price'] * buys['Quantity']).sum() / buys['Quantity'].sum()
+                avg_cost = (buys['Calc_Price'] * buys['Quantity']).sum() / buys['Quantity'].sum()
                 
                 try:
                     ticker = yf.Ticker(stock_id)
@@ -103,15 +106,18 @@ try:
                 roi = ((current_price - avg_cost) / avg_cost) * 100
                 
                 summary.append({
-                    "股票代碼": stock_id, "持股數量": current_q,
-                    "平均成本": round(avg_cost, 2), "目前市價": round(current_price, 2),
-                    "總損益": round(profit_loss, 2), "投報率": f"{round(roi, 2)}%"
+                    "股票代碼": stock_id,
+                    "持股數量": int(current_q),
+                    "平均成本": round(avg_cost, 2),
+                    "目前市價": round(current_price, 2),
+                    "總損益": round(profit_loss, 2),
+                    "投報率": f"{round(roi, 2)}%"
                 })
         
         if summary:
             st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
         else:
-            st.info("目前無持倉數據（請先新增加倉紀錄）。")
+            st.info("目前無實際持倉（僅有觀察中標的或已全數平倉）。")
     else:
         st.info("Sheet1 尚無資料。")
 except Exception as e:
@@ -187,23 +193,28 @@ if submit_button:
     else:
         st.warning("請輸入股票代碼！")
 
-# --- 第四部分：歷史紀錄表格 (含篩選器) ---
+# --- 第四部分：歷史紀錄表格 (優化百分比顯示) ---
 st.divider()
 st.header("📜 歷史紀錄查詢")
 
 try:
     df_history = conn.read(worksheet="Sheet1", ttl=0)
     if df_history is not None and not df_history.empty:
-        # 1. 在表格上方放篩選器
+        # 1. 篩選器
         all_actions = df_history['Action'].unique().tolist()
         selected_actions = st.multiselect("🔍 篩選動作類型", all_actions, default=all_actions)
         
-        # 2. 執行篩選
-        filtered_df = df_history[df_history['Action'].isin(selected_actions)]
-        
-        # 3. 排序與顯示
+        # 2. 執行篩選並處理數據
+        filtered_df = df_history[df_history['Action'].isin(selected_actions)].copy()
         filtered_df = filtered_df.sort_values(by='Date', ascending=False)
         
+        # 3. 核心修正：處理 Day_Change 字串
+        # 如果數據裡帶有 '%', 我們將其轉回數值，以便讓 Streamlit 的 column_config 處理符號
+        if 'Day_Change' in filtered_df.columns:
+            filtered_df['Day_Change_Val'] = filtered_df['Day_Change'].astype(str).str.replace('%', '').replace('N/A', '0')
+            filtered_df['Day_Change_Val'] = pd.to_numeric(filtered_df['Day_Change_Val'], errors='coerce').fillna(0) / 100
+
+        # 4. 顯示表格
         st.dataframe(
             filtered_df,
             column_config={
@@ -214,13 +225,19 @@ try:
                 "Day_High": "當日最高",
                 "Day_Low": "當日最低",
                 "Day_Close": "當日收盤",
-                "Day_Change": "當日漲跌",
+                "Day_Change_Val": st.column_config.NumberColumn(
+                    "當日漲跌", 
+                    help="當天收盤相對於前一天的漲跌幅",
+                    format="%.2f%%" # 這裡強制加上 % 符號
+                ),
                 "Note": "分析備註"
             },
+            # 隱藏原始的 Day_Change 字串列，改顯示我們處理過的 Day_Change_Val
+            column_order=("Date", "Stock_ID", "Action", "My_Price", "Day_High", "Day_Low", "Day_Close", "Day_Change_Val", "Note"),
             hide_index=True,
             use_container_width=True
         )
     else:
         st.info("尚無紀錄。")
 except Exception as e:
-    st.info(f"讀取表格時發生微小錯誤（可能是 Sheet1 欄位尚未更新）：{e}")
+    st.error(f"表格顯示失敗：{e}")

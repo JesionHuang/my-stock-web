@@ -142,11 +142,11 @@ try:
 except Exception as e:
     st.error(f"損益計算讀取失敗：{e}")
 
-# --- 第三部分：新增交易紀錄表單 (加入昨日收盤抓取) ---
+# --- 第三部分：新增交易紀錄表單 (含當日行情自動抓取) ---
 st.divider()
-st.header("📝 新增選股與交易紀錄 (含昨日行情)")
+st.header("📝 新增選股與交易紀錄 (含當日行情)")
 
-with st.form("transaction_form_v6", clear_on_submit=True):
+with st.form("transaction_form_v5", clear_on_submit=True):
     col1, col2, col3 = st.columns(3)
     with col1:
         t_date = st.date_input("紀錄日期", date.today())
@@ -163,26 +163,26 @@ with st.form("transaction_form_v6", clear_on_submit=True):
 if submit_button:
     if t_stock:
         try:
-            with st.spinner(f"正在抓取 {t_stock} 行情數據..."):
+            # A. 自動抓取當日行情數據
+            with st.spinner(f"正在抓取 {t_stock} 當日行情..."):
                 tk = yf.Ticker(t_stock.upper().strip())
-                hist = tk.history(period="2d") # 抓取兩天資料以取得昨日收盤
-                
-                if len(hist) >= 2:
-                    prev_close = round(hist['Close'].iloc[-2], 2)
+                # 抓取最近 1 天的數據
+                hist = tk.history(period="1d")
+                if not hist.empty:
                     day_high = round(hist['High'].iloc[-1], 2)
                     day_low = round(hist['Low'].iloc[-1], 2)
                     day_close = round(hist['Close'].iloc[-1], 2)
-                    day_change = f"{round(((day_close - prev_close) / prev_close) * 100, 2)}%"
-                elif len(hist) == 1:
-                    prev_close = "N/A"
-                    day_high = round(hist['High'].iloc[-1], 2)
-                    day_low = round(hist['Low'].iloc[-1], 2)
-                    day_close = round(hist['Close'].iloc[-1], 2)
-                    day_change = "N/A"
+                    # 計算漲跌幅 (需抓取前一日收盤)
+                    prev_hist = tk.history(period="2d")
+                    if len(prev_hist) >= 2:
+                        prev_close = prev_hist['Close'].iloc[-2]
+                        day_change = f"{round(((day_close - prev_close) / prev_close) * 100, 2)}%"
+                    else:
+                        day_change = "N/A"
                 else:
-                    prev_close, day_high, day_low, day_close, day_change = 0, 0, 0, 0, "N/A"
+                    day_high, day_low, day_close, day_change = 0, 0, 0, "N/A"
 
-            # 讀取與合併
+            # B. 讀取與合併資料
             try:
                 existing_data = conn.read(worksheet="Sheet1", ttl=0)
             except:
@@ -194,7 +194,6 @@ if submit_button:
                 "Action": t_type,
                 "My_Price": float(t_price),
                 "Quantity": int(t_qty),
-                "Prev_Close": prev_close, # 新增昨日收盤
                 "Day_High": day_high,
                 "Day_Low": day_low,
                 "Day_Close": day_close,
@@ -205,52 +204,76 @@ if submit_button:
             updated_df = pd.concat([existing_data, new_record], ignore_index=True)
             conn.update(worksheet="Sheet1", data=updated_df)
             
-            st.success(f"✅ 成功儲存！昨日收盤價：{prev_close}")
+            st.success(f"✅ 成功儲存！已自動記錄 {t_stock} 當日行情：高 {day_high} / 低 {day_low}")
+            st.balloons()
             st.rerun()
         except Exception as e:
-            st.error(f"抓取失敗：{e}")
+            st.error(f"儲存或抓取行情失敗：{e}")
+    else:
+        st.warning("請輸入股票代碼！")
 
-# --- 第四部分：歷史紀錄表格 (加入昨日收盤顯示) ---
+# --- 第四部分：歷史紀錄表格 (修復顏色定義與百分比問題) ---
 st.divider()
 st.header("📜 歷史紀錄查詢")
 
 try:
     df_history = conn.read(worksheet="Sheet1", ttl=0)
     if df_history is not None and not df_history.empty:
+        # 1. 篩選器
         all_actions = df_history['Action'].unique().tolist()
         selected_actions = st.multiselect("🔍 篩選動作類型", all_actions, default=all_actions)
         
+        # 2. 執行篩選
         filtered_df = df_history[df_history['Action'].isin(selected_actions)].copy()
         filtered_df = filtered_df.sort_values(by='Date', ascending=False)
         
-        # 處理漲跌幅數值與顏色
+        # 3. 數據預處理：確保漲跌幅是數值型態 (處理 -0.0195 這種小數)
         if 'Day_Change' in filtered_df.columns:
-            filtered_df['Display_Change'] = pd.to_numeric(
-                filtered_df['Day_Change'].astype(str).str.replace('%', ''), errors='coerce'
-            ).fillna(0) / 100
+            # 移除字串中的 % 並轉為數值，如果是小數則直接轉換
+            filtered_df['Display_Change'] = (
+                filtered_df['Day_Change']
+                .astype(str)
+                .str.replace('%', '', regex=False)
+                .replace('N/A', '0')
+            )
+            filtered_df['Display_Change'] = pd.to_numeric(filtered_df['Display_Change'], errors='coerce').fillna(0)
+            
+            # 關鍵判斷：如果數值大於 1 或小於 -1，通常代表它是百分比整數(1.5)而非小數(0.015)
+            # 為了配合 format="%.2f%%"，我們統一將其轉為小數格式
+            if filtered_df['Display_Change'].abs().max() > 1:
+                filtered_df['Display_Change'] = filtered_df['Display_Change'] / 100
 
+        # 4. 定義顏色邏輯 (紅漲綠跌)
         def color_style(val):
             color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
             return f'color: {color}; font-weight: bold'
 
+        # 5. 建立 styled_history 物件 (解決 undefined 錯誤)
         styled_history = filtered_df.style.map(color_style, subset=['Display_Change'])
         
+        # 6. 顯示表格
         st.dataframe(
             styled_history,
             column_config={
                 "Date": "日期",
                 "Stock_ID": "代碼",
-                "My_Price": st.column_config.NumberColumn("成交/觀察", format="$%.2f"),
-                "Prev_Close": "昨日收盤", # 新增顯示
-                "Day_High": "最高",
-                "Day_Low": "最低",
-                "Day_Close": "今日收盤",
-                "Display_Change": st.column_config.NumberColumn("漲跌 (%)", format="%.2f%%"),
-                "Note": "備註"
+                "Action": "動作",
+                "My_Price": st.column_config.NumberColumn("成交/觀察價", format="$%.2f"),
+                "Day_High": "當日最高",
+                "Day_Low": "當日最低",
+                "Day_Close": "當日收盤",
+                "Display_Change": st.column_config.NumberColumn(
+                    "當日漲跌", 
+                    help="當天收盤相對於前一天的漲跌幅",
+                    format="%.2f%%" # 將 0.0195 自動顯示為 1.95%
+                ),
+                "Note": "分析備註"
             },
-            # 調整欄位順序，讓昨日收盤在今日數據之前
-            column_order=("Date", "Stock_ID", "Action", "My_Price", "Prev_Close", "Day_High", "Day_Low", "Day_Close", "Display_Change", "Note"),
-            hide_index=True, use_container_width=True
+            column_order=("Date", "Stock_ID", "Action", "My_Price", "Day_High", "Day_Low", "Day_Close", "Display_Change", "Note"),
+            hide_index=True, 
+            use_container_width=True
         )
+    else:
+        st.info("尚無紀錄。")
 except Exception as e:
-    st.error(f"歷史紀錄顯示錯誤：{e}")
+    st.error(f"讀取表格時發生錯誤：{e}")

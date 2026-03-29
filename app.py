@@ -64,7 +64,7 @@ if not df_heatmap.empty:
 else:
     st.warning("暫時無法獲取市場數據。")
 
-# --- 第二部分：當前持倉損益分析 (紅綠配色 + 零線折線趨勢版) ---
+# --- 第二部分：當前持倉損益分析 (修正後的完整結構) ---
 st.divider()
 st.header("💰 當前持倉損益分析")
 
@@ -94,13 +94,13 @@ try:
                     hist_trend = tk.history(period="1mo")['Close']
                     current_price = hist_trend.iloc[-1]
                     
-                    # --- 核心邏輯：將折線圖「零軸化」 ---
+                    # 趨勢歸一化 (讓折線圍繞中線波動)
                     def get_trend_normalized(series, days):
                         data = series.iloc[-days:]
                         avg = data.mean()
-                        diff = data - avg  # 減去平均值，讓數據圍繞 0 震盪
+                        diff = data - avg
                         max_abs = diff.abs().max() if diff.abs().max() != 0 else 1
-                        return (diff / max_abs).tolist() # 縮放到 -1 ~ 1 區間
+                        return (diff / max_abs).tolist()
 
                     t5 = get_trend_normalized(hist_trend, 5)
                     t10 = get_trend_normalized(hist_trend, 10)
@@ -109,7 +109,7 @@ try:
                     current_price = avg_cost
                     t5 = t10 = t20 = []
                 
-                roi_val = ((current_price - avg_cost) / avg_cost)
+                roi_val = (current_price - avg_cost) / avg_cost
                 summary.append({
                     "股票代碼": stock_id, 
                     "持股數量": int(current_q),
@@ -123,7 +123,7 @@ try:
         if summary:
             df_final = pd.DataFrame(summary)
 
-            # 定義紅漲綠跌顏色
+            # 設定紅漲綠跌
             def color_pnl_style(val):
                 color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
                 return f'color: {color}; font-weight: bold'
@@ -138,7 +138,6 @@ try:
                     "目前市價": st.column_config.NumberColumn("市價", format="$%.2f"),
                     "總損益": st.column_config.NumberColumn("總損益", format="$%.2f"),
                     "投報率_數值": st.column_config.NumberColumn("投報率", format="%.2f%%"),
-                    # --- 使用 LineChartColumn 並固定 y 軸對稱，產生零線視覺 ---
                     "5日趨勢": st.column_config.LineChartColumn("5D 走勢", y_min=-1, y_max=1),
                     "10日趨勢": st.column_config.LineChartColumn("10D 走勢", y_min=-1, y_max=1),
                     "20日趨勢": st.column_config.LineChartColumn("20D 走勢", y_min=-1, y_max=1),
@@ -147,9 +146,13 @@ try:
                 use_container_width=True, 
                 hide_index=True
             )
-            st.caption("💡 💡 註：趨勢圖中位線為該期間平均價。曲線在前半格代表低於平均，後半格代表高於平均。")
         else:
             st.info("目前無實際持倉。")
+    else:
+        st.info("Sheet1 尚無資料。")
+
+except Exception as e:
+    st.error(f"持倉分析載入失敗：{e}")
 
 # --- 第三部分：新增交易紀錄表單 (含當日行情自動抓取) ---
 st.divider()

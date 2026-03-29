@@ -64,7 +64,7 @@ if not df_heatmap.empty:
 else:
     st.warning("暫時無法獲取市場數據。")
 
-# --- 第二部分：當前持倉損益分析 (含紅綠配色與零線偏差圖) ---
+# --- 第二部分：當前持倉損益分析 (紅綠配色 + 零線折線趨勢版) ---
 st.divider()
 st.header("💰 當前持倉損益分析")
 
@@ -94,45 +94,40 @@ try:
                     hist_trend = tk.history(period="1mo")['Close']
                     current_price = hist_trend.iloc[-1]
                     
-                    # 偏差計算函數 (強化零線感)
-                    def get_deviation_normalized(series, days):
+                    # --- 核心邏輯：將折線圖「零軸化」 ---
+                    def get_trend_normalized(series, days):
                         data = series.iloc[-days:]
                         avg = data.mean()
-                        diff = data - avg
-                        max_val = diff.abs().max() if diff.abs().max() != 0 else 1
-                        return (diff / max_val).tolist()
+                        diff = data - avg  # 減去平均值，讓數據圍繞 0 震盪
+                        max_abs = diff.abs().max() if diff.abs().max() != 0 else 1
+                        return (diff / max_abs).tolist() # 縮放到 -1 ~ 1 區間
 
-                    diff_5d = get_deviation_normalized(hist_trend, 5)
-                    diff_10d = get_deviation_normalized(hist_trend, 10)
-                    diff_20d = get_deviation_normalized(hist_trend, 20)
+                    t5 = get_trend_normalized(hist_trend, 5)
+                    t10 = get_trend_normalized(hist_trend, 10)
+                    t20 = get_trend_normalized(hist_trend, 20)
                 except:
                     current_price = avg_cost
-                    diff_5d = diff_10d = diff_20d = []
+                    t5 = t10 = t20 = []
                 
-                profit_loss = (current_price - avg_cost) * current_q
-                roi_val = ((current_price - avg_cost) / avg_cost) # 轉為小數供配色與格式化
-                
+                roi_val = ((current_price - avg_cost) / avg_cost)
                 summary.append({
                     "股票代碼": stock_id, 
                     "持股數量": int(current_q),
                     "平均成本": round(avg_cost, 2), 
                     "目前市價": round(current_price, 2),
-                    "總損益": round(profit_loss, 2),
+                    "總損益": round((current_price - avg_cost) * current_q, 2),
                     "投報率_數值": roi_val,
-                    "5日偏差": diff_5d, 
-                    "10日偏差": diff_10d, 
-                    "20日偏差": diff_20d
+                    "5日趨勢": t5, "10日趨勢": t10, "20日趨勢": t20
                 })
         
         if summary:
             df_final = pd.DataFrame(summary)
 
-            # --- 關鍵：定義紅漲綠跌配色函數 ---
+            # 定義紅漲綠跌顏色
             def color_pnl_style(val):
                 color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
                 return f'color: {color}; font-weight: bold'
 
-            # 應用樣式到「總損益」與「投報率_數值」
             styled_summary = df_final.style.map(color_pnl_style, subset=['總損益', '投報率_數值'])
             
             st.dataframe(
@@ -143,19 +138,18 @@ try:
                     "目前市價": st.column_config.NumberColumn("市價", format="$%.2f"),
                     "總損益": st.column_config.NumberColumn("總損益", format="$%.2f"),
                     "投報率_數值": st.column_config.NumberColumn("投報率", format="%.2f%%"),
-                    "5日偏差": st.column_config.BarChartColumn("5D 乖離", y_min=-1, y_max=1),
-                    "10日偏差": st.column_config.BarChartColumn("10D 乖離", y_min=-1, y_max=1),
-                    "20日偏差": st.column_config.BarChartColumn("20D 乖離", y_min=-1, y_max=1),
+                    # --- 使用 LineChartColumn 並固定 y 軸對稱，產生零線視覺 ---
+                    "5日趨勢": st.column_config.LineChartColumn("5D 走勢", y_min=-1, y_max=1),
+                    "10日趨勢": st.column_config.LineChartColumn("10D 走勢", y_min=-1, y_max=1),
+                    "20日趨勢": st.column_config.LineChartColumn("20D 走勢", y_min=-1, y_max=1),
                 },
-                column_order=("股票代碼", "持股數量", "平均成本", "目前市價", "總損益", "投報率_數值", "5日偏差", "10日偏差", "20日偏差"),
+                column_order=("股票代碼", "持股數量", "平均成本", "目前市價", "總損益", "投報率_數值", "5日趨勢", "10日趨勢", "20日趨勢"),
                 use_container_width=True, 
                 hide_index=True
             )
-            st.caption("💡 註：總損益與投報率採 **紅漲綠跌** 配色；乖離圖中位線為平均價。")
+            st.caption("💡 💡 註：趨勢圖中位線為該期間平均價。曲線在前半格代表低於平均，後半格代表高於平均。")
         else:
             st.info("目前無實際持倉。")
-except Exception as e:
-    st.error(f"持倉分析載入失敗：{e}")
 
 # --- 第三部分：新增交易紀錄表單 (含當日行情自動抓取) ---
 st.divider()

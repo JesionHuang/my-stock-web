@@ -152,16 +152,50 @@ try:
                     "目前市價": round(curr_p, 2), "總損益": round((curr_p - avg_c) * curr_q, 2),
                     "投報率": roi, "5D趨勢": t5, "10D趨勢": t10, "20D趨勢": t20
                 })
-        
+# ==========================================
+# 2. 第二部分：當前持倉損益分析 (修正圖表顯示)
+# ==========================================
+# ... (前面的計算與 summary.append 維持不變) ...
+
         if summary:
             df_final = pd.DataFrame(summary)
-            def color_pnl(val): return f'color: {"red" if val > 0 else "green" if val < 0 else "#ccc"}; font-weight: bold'
-            st.dataframe(df_final.style.map(color_pnl, subset=['總損益', '投報率']), column_config={
-                "投報率": st.column_config.NumberColumn("投報率", format="%.2f%%"),
-                "5D趨勢": st.column_config.LineChartColumn("5D", y_min=-1, y_max=1),
-                "10D趨勢": st.column_config.LineChartColumn("10D", y_min=-1, y_max=1),
-                "20D趨勢": st.column_config.LineChartColumn("20D", y_min=-1, y_max=1),
-            }, use_container_width=True, hide_index=True)
+            
+            # 定義紅漲綠跌
+            def color_pnl(val): 
+                color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
+                return f'color: {color}; font-weight: bold'
+            
+            # --- 核心修改：在顯示前先將小數轉為百分比數值 ---
+            # 假設原本是 0.0239 (代表 2.39%)，我們把它乘以 100 變成 2.39
+            if not df_final.empty and '投報率' in df_final.columns:
+                df_final['Display_ROI'] = df_final['投報率'] * 100
+            else:
+                df_final['Display_ROI'] = 0
+
+            st.dataframe(
+                df_final.style.map(color_pnl, subset=['總損益', '投報率']), # 顏色判斷用原始小數
+                column_config={
+                    "股票代碼": "代碼",
+                    "平均成本": st.column_config.NumberColumn("成本", format="$%.2f"),
+                    "目前市價": st.column_config.NumberColumn("市價", format="$%.2f"),
+                    "總損益": st.column_config.NumberColumn("總損益", format="$%.2f"),
+                    
+                    # --- 核心修改：使用處理後的百分比數值進行顯示 ---
+                    "Display_ROI": st.column_config.NumberColumn(
+                        "投報率", 
+                        format="%.2f%%", # 這裡會自動把 2.39 顯示為 2.39%
+                        help="原始計算結果已乘以 100 顯示為百分比"
+                    ),
+                    
+                    "5D趨勢": st.column_config.LineChartColumn("5D", y_min=-1, y_max=1),
+                    "10D趨勢": st.column_config.LineChartColumn("10D", y_min=-1, y_max=1),
+                    "20D趨勢": st.column_config.LineChartColumn("20D", y_min=-1, y_max=1),
+                },
+                # 調整顯示順序，將 Display_ROI 放在原本投報率的位置，並隱藏原本的投報率
+                column_order=("股票代碼", "持股數量", "平均成本", "目前市價", "總損益", "Display_ROI", "5D趨勢", "10D趨勢", "20D趨勢"),
+                use_container_width=True, 
+                hide_index=True
+            )
 except Exception as e: st.error(f"持倉處理錯誤: {e}")
 
 # ==========================================
@@ -255,24 +289,74 @@ if submit and t_stock:
     except Exception as e: st.error(f"儲存失敗: {e}")
 
 # ==========================================
-# 4. 第四部分：歷史紀錄查詢 (快取保護版)
+# 4. 第四部分：歷史紀錄查詢 (百分比顯示修正版)
 # ==========================================
 st.divider()
 st.header("📜 歷史紀錄查詢")
 
 try:
+    # 使用快取函數讀取資料
     df_hist = fetch_data("Sheet1")
-    if not df_hist.empty:
+    
+    if df_hist is not None and not df_hist.empty:
+        # 1. 動作篩選器
         actions = df_hist['Action'].unique().tolist()
-        sel_actions = st.multiselect("🔍 篩選動作", actions, default=actions)
-        df_f = df_hist[df_hist['Action'].isin(sel_actions)].copy().sort_values(by='Date', ascending=False)
+        sel_actions = st.multiselect("🔍 篩選動作類型", actions, default=actions)
         
+        # 2. 複製資料並過濾
+        df_f = df_hist[df_hist['Action'].isin(sel_actions)].copy()
+        df_f = df_f.sort_values(by='Date', ascending=False)
+        
+        # 3. 核心修正：處理漲跌幅數值
         if 'Day_Change' in df_f.columns:
-            df_f['Chg_Val'] = pd.to_numeric(df_f['Day_Change'].astype(str).str.replace('%', '').replace('N/A', '0'), errors='coerce').fillna(0)
-            if df_f['Chg_Val'].abs().max() > 1: df_f['Chg_Val'] /= 100
-        
-        st.dataframe(df_f.style.map(lambda x: f'color: {"red" if x > 0 else "green" if x < 0 else "#ccc"}; font-weight: bold', subset=['Chg_Val']), column_config={
-            "My_Price": st.column_config.NumberColumn("成交價", format="$%.2f"),
-            "Chg_Val": st.column_config.NumberColumn("當日漲跌", format="%.2f%%")
-        }, hide_index=True, use_container_width=True)
-except Exception as e: st.error(f"載入失敗: {e}")
+            # 先將字串中的 % 移除，並處理 N/A 轉為 0
+            temp_chg = (
+                df_f['Day_Change']
+                .astype(str)
+                .str.replace('%', '', regex=False)
+                .replace('N/A', '0')
+            )
+            # 轉為純數字 (例如 "2.39" 變成 2.39)
+            df_f['Chg_Num'] = pd.to_numeric(temp_chg, errors='coerce').fillna(0)
+            
+            # 安全機制：如果數值非常小 (例如 0.0239)，代表它是原始小數，則乘以 100
+            # 如果數值已經是 2.39，則保持不變
+            if df_f['Chg_Num'].abs().max() < 1 and df_f['Chg_Num'].abs().max() != 0:
+                df_f['Display_Chg'] = df_f['Chg_Num'] * 100
+            else:
+                df_f['Display_Chg'] = df_f['Chg_Num']
+        else:
+            df_f['Display_Chg'] = 0
+
+        # 4. 定義顏色樣式 (紅漲綠跌)
+        def color_hist_chg(val):
+            color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
+            return f'color: {color}; font-weight: bold'
+
+        # 5. 顯示表格
+        st.dataframe(
+            df_f.style.map(color_hist_chg, subset=['Display_Chg']),
+            column_config={
+                "Date": "日期",
+                "Stock_ID": "代碼",
+                "Action": "動作",
+                "My_Price": st.column_config.NumberColumn("成交/觀察價", format="$%.2f"),
+                "Day_High": "最高",
+                "Day_Low": "最低",
+                "Day_Close": "收盤",
+                "Display_Chg": st.column_config.NumberColumn(
+                    "當日漲跌", 
+                    help="當天收盤相對於前一天的漲跌幅百分比",
+                    format="%.2f%%"  # 這裡會顯示如 2.39%
+                ),
+                "Note": "分析備註"
+            },
+            # 指定顯示順序並隱藏原始的 Day_Change 和中間計算欄位
+            column_order=("Date", "Stock_ID", "Action", "My_Price", "Day_High", "Day_Low", "Day_Close", "Display_Chg", "Note"),
+            hide_index=True, 
+            use_container_width=True
+        )
+    else:
+        st.info("目前尚無歷史交易紀錄。")
+except Exception as e:
+    st.error(f"歷史紀錄載入失敗：{e}")

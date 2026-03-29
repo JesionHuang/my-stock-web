@@ -210,20 +210,20 @@ try:
         # 3. 排序與顯示
         filtered_df = filtered_df.sort_values(by='Date', ascending=False)
         
+        # --- 修正歷史紀錄顯示格式 ---
         st.dataframe(
-            filtered_df,
+            styled_history, # 這是你套用過顏色的 styled dataframe
             column_config={
-                "Date": "日期",
-                "Stock_ID": "代碼",
-                "Action": "動作",
-                "My_Price": st.column_config.NumberColumn("成交/觀察價", format="$%.2f"),
-                "Day_High": "當日最高",
-                "Day_Low": "當日最低",
-                "Day_Close": "當日收盤",
-                "Day_Change": "當日漲跌",
-                "Note": "分析備註"
+                # 將原本顯示小數的欄位設定為百分比格式
+                "Display_Change": st.column_config.NumberColumn(
+                    "當日漲跌", 
+                    help="當天收盤相對於前一天的漲跌幅",
+                    format="%.2f%%" # 這裡會自動把 -0.0195 變成 -1.95%
+                ),
+                "My_Price": st.column_config.NumberColumn("成交/觀察價", format="$%.2f")
             },
-            hide_index=True,
+            column_order=("Date", "Stock_ID", "Action", "My_Price", "Day_High", "Day_Low", "Day_Close", "Display_Change", "Note"),
+            hide_index=True, 
             use_container_width=True
         )
     else:

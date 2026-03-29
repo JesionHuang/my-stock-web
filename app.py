@@ -116,7 +116,7 @@ try:
                     "股票代碼": stock_id, "持股數量": int(current_q),
                     "平均成本": round(avg_cost, 2), "目前市價": round(current_price, 2),
                     "總損益": round((current_price - avg_cost) * current_q, 2),
-                    "投報率_數值": roi_val / 100,
+                    "投報率_數值": roi_val / 1,
                     "5日趨勢": t5, "5日色": c5,
                     "10日趨勢": t10, "10日色": c10,
                     "20日趨勢": t20, "20日色": c20

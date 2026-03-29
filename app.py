@@ -193,34 +193,62 @@ if submit_button:
     else:
         st.warning("請輸入股票代碼！")
 
-# --- 第四部分：歷史紀錄表格 (含篩選器) ---
+# --- 第四部分：歷史紀錄表格 (修復顏色定義與百分比問題) ---
 st.divider()
 st.header("📜 歷史紀錄查詢")
 
 try:
     df_history = conn.read(worksheet="Sheet1", ttl=0)
     if df_history is not None and not df_history.empty:
-        # 1. 在表格上方放篩選器
+        # 1. 篩選器
         all_actions = df_history['Action'].unique().tolist()
         selected_actions = st.multiselect("🔍 篩選動作類型", all_actions, default=all_actions)
         
         # 2. 執行篩選
-        filtered_df = df_history[df_history['Action'].isin(selected_actions)]
-        
-        # 3. 排序與顯示
+        filtered_df = df_history[df_history['Action'].isin(selected_actions)].copy()
         filtered_df = filtered_df.sort_values(by='Date', ascending=False)
         
-        # --- 修正歷史紀錄顯示格式 ---
+        # 3. 數據預處理：確保漲跌幅是數值型態 (處理 -0.0195 這種小數)
+        if 'Day_Change' in filtered_df.columns:
+            # 移除字串中的 % 並轉為數值，如果是小數則直接轉換
+            filtered_df['Display_Change'] = (
+                filtered_df['Day_Change']
+                .astype(str)
+                .str.replace('%', '', regex=False)
+                .replace('N/A', '0')
+            )
+            filtered_df['Display_Change'] = pd.to_numeric(filtered_df['Display_Change'], errors='coerce').fillna(0)
+            
+            # 關鍵判斷：如果數值大於 1 或小於 -1，通常代表它是百分比整數(1.5)而非小數(0.015)
+            # 為了配合 format="%.2f%%"，我們統一將其轉為小數格式
+            if filtered_df['Display_Change'].abs().max() > 1:
+                filtered_df['Display_Change'] = filtered_df['Display_Change'] / 100
+
+        # 4. 定義顏色邏輯 (紅漲綠跌)
+        def color_style(val):
+            color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
+            return f'color: {color}; font-weight: bold'
+
+        # 5. 建立 styled_history 物件 (解決 undefined 錯誤)
+        styled_history = filtered_df.style.map(color_style, subset=['Display_Change'])
+        
+        # 6. 顯示表格
         st.dataframe(
-            styled_history, # 這是你套用過顏色的 styled dataframe
+            styled_history,
             column_config={
-                # 將原本顯示小數的欄位設定為百分比格式
+                "Date": "日期",
+                "Stock_ID": "代碼",
+                "Action": "動作",
+                "My_Price": st.column_config.NumberColumn("成交/觀察價", format="$%.2f"),
+                "Day_High": "當日最高",
+                "Day_Low": "當日最低",
+                "Day_Close": "當日收盤",
                 "Display_Change": st.column_config.NumberColumn(
                     "當日漲跌", 
                     help="當天收盤相對於前一天的漲跌幅",
-                    format="%.2f%%" # 這裡會自動把 -0.0195 變成 -1.95%
+                    format="%.2f%%" # 將 0.0195 自動顯示為 1.95%
                 ),
-                "My_Price": st.column_config.NumberColumn("成交/觀察價", format="$%.2f")
+                "Note": "分析備註"
             },
             column_order=("Date", "Stock_ID", "Action", "My_Price", "Day_High", "Day_Low", "Day_Close", "Display_Change", "Note"),
             hide_index=True, 
@@ -229,4 +257,4 @@ try:
     else:
         st.info("尚無紀錄。")
 except Exception as e:
-    st.info(f"讀取表格時發生微小錯誤（可能是 Sheet1 欄位尚未更新）：{e}")
+    st.error(f"讀取表格時發生錯誤：{e}")

@@ -241,7 +241,7 @@ try:
             # 關鍵判斷：如果數值大於 1 或小於 -1，通常代表它是百分比整數(1.5)而非小數(0.015)
             # 為了配合 format="%.2f%%"，我們統一將其轉為小數格式
             if filtered_df['Display_Change'].abs().max() > 1:
-                filtered_df['Display_Change'] = filtered_df['Display_Change'] / 1
+                filtered_df['Display_Change'] = filtered_df['Display_Change'] / 100
 
         # 4. 定義顏色邏輯 (紅漲綠跌)
         def color_style(val):

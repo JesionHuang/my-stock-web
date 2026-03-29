@@ -81,13 +81,13 @@ st.divider()
 st.header("💰 當前持倉損益分析")
 
 # 持倉管理工具箱 (完全覆蓋模式)
-with st.expander("🛠️ 持倉管理工具 (直接修改最終持倉狀態)"):
+with st.expander("🛠️ 持倉管理工具 (手動校正券商最終數值)"):
     st.info("💡 此功能會清除該股票舊紀錄，並以你輸入的「最終數量與成本」作為唯一基準。")
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1:
         m_stock = st.text_input("股票代碼", placeholder="例如: 2330.TW", key="m_stock_input").upper().strip()
     with col_m2:
-        m_qty = st.number_input("最終總持有數量", min_value=0, step=1)
+        m_qty = st.number_input("最終持有總數量", min_value=0, step=1)
     with col_m3:
         m_cost = st.number_input("最終平均成本價", min_value=0.0, step=0.1)
     
@@ -96,37 +96,25 @@ with st.expander("🛠️ 持倉管理工具 (直接修改最終持倉狀態)"):
         if st.button("🚀 執行直接覆蓋 (同步券商數值)", use_container_width=True):
             if m_stock:
                 try:
-                    # 1. 讀取所有資料
                     df_all = conn.read(worksheet="Sheet1", ttl=0)
-                    # 2. 剔除該股票的所有舊紀錄 (達成直接修改效果)
                     df_filtered = df_all[df_all['Stock_ID'].astype(str).str.upper() != m_stock]
-                    # 3. 建立一筆全新的「最終狀態」紀錄
                     new_final_rec = pd.DataFrame([{
-                        "Date": str(date.today()), 
-                        "Stock_ID": m_stock, 
-                        "Action": "加倉",
-                        "My_Price": float(m_cost), 
-                        "Quantity": int(m_qty), 
-                        "Note": "🔄 手動直接覆蓋最終狀態"
+                        "Date": str(date.today()), "Stock_ID": m_stock, "Action": "加倉",
+                        "My_Price": float(m_cost), "Quantity": int(m_qty), "Note": "🔄 手動直接覆蓋校正"
                     }])
-                    # 4. 合併並更新回 Google Sheets
-                    final_df = pd.concat([df_filtered, new_final_rec], ignore_index=True)
-                    conn.update(worksheet="Sheet1", data=final_df)
+                    conn.update(worksheet="Sheet1", data=pd.concat([df_filtered, new_final_rec], ignore_index=True))
                     st.cache_data.clear() 
-                    st.success(f"✅ {m_stock} 已強制更新為最終狀態！")
-                    st.rerun()
+                    st.success(f"✅ {m_stock} 已更新為最終狀態！"); st.rerun()
                 except Exception as e: st.error(f"覆蓋失敗: {e}")
     with c2:
         if st.button("🔥 一鍵徹底清空紀錄", use_container_width=True, type="primary"):
             if m_stock:
                 try:
                     df_all = conn.read(worksheet="Sheet1", ttl=0)
-                    # 直接把該代碼從資料庫中移除
                     df_filtered = df_all[df_all['Stock_ID'].astype(str).str.upper() != m_stock]
                     conn.update(worksheet="Sheet1", data=df_filtered)
                     st.cache_data.clear()
-                    st.success(f"✅ {m_stock} 相關紀錄已全數清除。")
-                    st.rerun()
+                    st.success(f"✅ {m_stock} 紀錄已清除。"); st.rerun()
                 except Exception as e: st.error(f"清空失敗: {e}")
 
 # 顯示持倉表格
@@ -141,16 +129,11 @@ try:
         for stock_id in df_calc['Stock_ID'].unique():
             if not stock_id or stock_id == "NAN": continue
             df_s = df_calc[df_calc['Stock_ID'] == stock_id]
-            
-            # 計算目前數量 (加倉 - 平倉)
             curr_q = df_s[df_s['Action'] == "加倉"]['Q'].sum() - df_s[df_s['Action'] == "平倉"]['Q'].sum()
             
             if curr_q > 0:
-                # 重新定義平均成本：以最新的一筆「覆蓋紀錄」或加權平均為準
-                # 既然你現在用覆蓋邏輯，這裡的計算會變得很單純
                 buys = df_s[df_s['Action'] == "加倉"]
                 avg_c = (buys['P'] * buys['Q']).sum() / buys['Q'].sum()
-                
                 try:
                     tk = yf.Ticker(stock_id); h = tk.history(period="1mo")['Close']
                     curr_p = h.iloc[-1]
@@ -161,8 +144,8 @@ try:
                     t5, t10, t20 = norm(h, 5), norm(h, 10), norm(h, 20)
                 except: curr_p = avg_c; t5 = t10 = t20 = []
                 
-                # 計算投報率 (不額外除以 100)
-                roi = (curr_p - avg_c) / avg_c
+                # 計算投報率 (小數格式，交給 column_config 轉百分比)
+                roi = (curr_p - avg_c) / avg_c if avg_c != 0 else 0
                 
                 summary.append({
                     "股票代碼": stock_id, "持股數量": int(curr_q), "平均成本": round(avg_c, 2),
@@ -173,22 +156,12 @@ try:
         if summary:
             df_final = pd.DataFrame(summary)
             def color_pnl(val): return f'color: {"red" if val > 0 else "green" if val < 0 else "#ccc"}; font-weight: bold'
-            
-            st.dataframe(
-                df_final.style.map(color_pnl, subset=['總損益', '投報率']), 
-                column_config={
-                    "股票代碼": "代碼",
-                    "平均成本": st.column_config.NumberColumn("成本", format="$%.2f"),
-                    "目前市價": st.column_config.NumberColumn("市價", format="$%.2f"),
-                    "總損益": st.column_config.NumberColumn("總損益", format="$%.2f"),
-                    "投報率": st.column_config.NumberColumn("投報率", format="%.2f%%"), # 這裡會自動處理百分比顯示
-                    "5D趨勢": st.column_config.LineChartColumn("5D", y_min=-1, y_max=1),
-                    "10D趨勢": st.column_config.LineChartColumn("10D", y_min=-1, y_max=1),
-                    "20D趨勢": st.column_config.LineChartColumn("20D", y_min=-1, y_max=1),
-                }, 
-                use_container_width=True, 
-                hide_index=True
-            )
+            st.dataframe(df_final.style.map(color_pnl, subset=['總損益', '投報率']), column_config={
+                "投報率": st.column_config.NumberColumn("投報率", format="%.2f%%"),
+                "5D趨勢": st.column_config.LineChartColumn("5D", y_min=-1, y_max=1),
+                "10D趨勢": st.column_config.LineChartColumn("10D", y_min=-1, y_max=1),
+                "20D趨勢": st.column_config.LineChartColumn("20D", y_min=-1, y_max=1),
+            }, use_container_width=True, hide_index=True)
 except Exception as e: st.error(f"持倉處理錯誤: {e}")
 
 # ==========================================

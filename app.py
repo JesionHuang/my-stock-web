@@ -64,7 +64,7 @@ if not df_heatmap.empty:
 else:
     st.warning("暫時無法獲取市場數據。")
 
-# --- 第二部分：當前持倉損益分析 (修正欄位名稱版) ---
+# --- 第二部分：當前持倉損益分析 (修正紅綠配色版) ---
 st.divider()
 st.header("💰 當前持倉損益分析")
 
@@ -72,10 +72,7 @@ try:
     df_calc = conn.read(worksheet="Sheet1", ttl=0)
     
     if df_calc is not None and not df_calc.empty:
-        # 1. 確保欄位名稱正確 (將 My_Price 轉為計算用的數值)
-        # 如果你的 Sheets 裡還有舊的 'Price' 欄位，這行會優先抓 My_Price
         target_col = 'My_Price' if 'My_Price' in df_calc.columns else 'Price'
-        
         df_calc['Calc_Price'] = pd.to_numeric(df_calc[target_col], errors='coerce').fillna(0)
         df_calc['Quantity'] = pd.to_numeric(df_calc['Quantity'], errors='coerce').fillna(0)
         df_calc['Stock_ID'] = df_calc['Stock_ID'].astype(str).str.upper()
@@ -83,19 +80,14 @@ try:
         summary = []
         for stock_id in df_calc['Stock_ID'].unique():
             if not stock_id or stock_id == "NAN": continue
-            
             df_stock = df_calc[df_calc['Stock_ID'] == stock_id]
-            
-            # 只計算「加倉」與「平倉」，排除「觀察中」
             buy_q = df_stock[df_stock['Action'] == "加倉"]['Quantity'].sum()
             sell_q = df_stock[df_stock['Action'] == "平倉"]['Quantity'].sum()
             current_q = buy_q - sell_q
             
             if current_q > 0:
-                # 計算平均成本 (使用新的 Calc_Price)
                 buys = df_stock[df_stock['Action'] == "加倉"]
                 avg_cost = (buys['Calc_Price'] * buys['Quantity']).sum() / buys['Quantity'].sum()
-                
                 try:
                     ticker = yf.Ticker(stock_id)
                     current_price = ticker.fast_info['last_price']
@@ -103,7 +95,7 @@ try:
                     current_price = avg_cost
                 
                 profit_loss = (current_price - avg_cost) * current_q
-                roi = ((current_price - avg_cost) / avg_cost) * 100
+                roi_val = ((current_price - avg_cost) / avg_cost) * 100
                 
                 summary.append({
                     "股票代碼": stock_id,
@@ -111,11 +103,38 @@ try:
                     "平均成本": round(avg_cost, 2),
                     "目前市價": round(current_price, 2),
                     "總損益": round(profit_loss, 2),
-                    "投報率": f"{round(roi, 2)}%"
+                    "投報率_數值": roi_val / 100, # 轉為小數供 format="%.2f%%" 使用
+                    "投報率": f"{round(roi_val, 2)}%" # 保留原始文字
                 })
         
         if summary:
-            st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+            df_final = pd.DataFrame(summary)
+
+            # 定義顏色邏輯
+            def color_pnl_val(val):
+                color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
+                return f'color: {color}; font-weight: bold'
+
+            # 建立樣式物件：同時對「總損益」與「投報率_數值」著色
+            styled_summary = df_final.style.map(color_pnl_val, subset=['總損益', '投報率_數值'])
+            
+            st.dataframe(
+                styled_summary,
+                column_config={
+                    "股票代碼": "代碼",
+                    "平均成本": st.column_config.NumberColumn("成本", format="$%.2f"),
+                    "目前市價": st.column_config.NumberColumn("市價", format="$%.2f"),
+                    "總損益": st.column_config.NumberColumn("總損益", format="$%.2f"),
+                    "投報率_數值": st.column_config.NumberColumn(
+                        "投報率", 
+                        format="%.2f%%"
+                    ),
+                },
+                # 關鍵：隱藏原本的純文字「投報率」，顯示帶有顏色的「投報率_數值」
+                column_order=("股票代碼", "持股數量", "平均成本", "目前市價", "總損益", "投報率_數值"),
+                use_container_width=True, 
+                hide_index=True
+            )
         else:
             st.info("目前無實際持倉（僅有觀察中標的或已全數平倉）。")
     else:

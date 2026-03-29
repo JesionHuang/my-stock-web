@@ -64,10 +64,44 @@ if not df_heatmap.empty:
 else:
     st.warning("暫時無法獲取市場數據。")
 
-# --- 第二部分：當前持倉損益分析 (修正後的完整結構) ---
+# --- 第二部分：當前持倉損益分析 (含手動變更功能) ---
 st.divider()
 st.header("💰 當前持倉損益分析")
 
+# --- 新增：手動變更成本與數量的小工具 ---
+with st.expander("🛠️ 手動修正持倉數據 (若自動計算不準確時使用)"):
+    col_m1, col_m2, col_m3 = st.columns(3)
+    with col_m1:
+        m_stock = st.text_input("要修正的代碼", placeholder="例如: 2330.TW")
+    with col_m2:
+        m_qty = st.number_input("修正後總數量", min_value=0, step=1)
+    with col_m3:
+        m_cost = st.number_input("修正後平均成本", min_value=0.0, step=0.1)
+    
+    if st.button("更新此筆持倉 (以最後一筆紀錄為準)"):
+        if m_stock:
+            try:
+                # 讀取現有資料
+                df_temp = conn.read(worksheet="Sheet1", ttl=0)
+                # 新增一筆「修正」動作，讓自動計算邏輯被覆蓋
+                new_adj = pd.DataFrame([{
+                    "Date": str(date.today()),
+                    "Stock_ID": m_stock.upper().strip(),
+                    "Action": "加倉", # 透過大額加倉來重置平均值，或你可以自定義 Action
+                    "My_Price": float(m_cost),
+                    "Quantity": int(m_qty),
+                    "Note": "💡 手動修正紀錄"
+                }])
+                # 注意：這裡的邏輯是直接增加一筆紀錄來影響計算，或是你可以選擇刪除舊紀錄。
+                # 為了安全，我們建議直接新增一筆備註為修正的紀錄。
+                updated_df = pd.concat([df_temp, new_adj], ignore_index=True)
+                conn.update(worksheet="Sheet1", data=updated_df)
+                st.success(f"✅ {m_stock} 已更新！")
+                st.rerun()
+            except Exception as e:
+                st.error(f"修正失敗：{e}")
+
+# --- 原有的持倉顯示邏輯 (含紅綠配色與零線折線圖) ---
 try:
     df_calc = conn.read(worksheet="Sheet1", ttl=0)
     
@@ -81,6 +115,8 @@ try:
         for stock_id in df_calc['Stock_ID'].unique():
             if not stock_id or stock_id == "NAN": continue
             df_stock = df_calc[df_calc['Stock_ID'] == stock_id]
+            
+            # 這裡維持自動計算邏輯
             buy_q = df_stock[df_stock['Action'] == "加倉"]['Quantity'].sum()
             sell_q = df_stock[df_stock['Action'] == "平倉"]['Quantity'].sum()
             current_q = buy_q - sell_q
@@ -94,7 +130,6 @@ try:
                     hist_trend = tk.history(period="1mo")['Close']
                     current_price = hist_trend.iloc[-1]
                     
-                    # 趨勢歸一化 (讓折線圍繞中線波動)
                     def get_trend_normalized(series, days):
                         data = series.iloc[-days:]
                         avg = data.mean()
@@ -111,19 +146,15 @@ try:
                 
                 roi_val = (current_price - avg_cost) / avg_cost
                 summary.append({
-                    "股票代碼": stock_id, 
-                    "持股數量": int(current_q),
-                    "平均成本": round(avg_cost, 2), 
-                    "目前市價": round(current_price, 2),
+                    "股票代碼": stock_id, "持股數量": int(current_q),
+                    "平均成本": round(avg_cost, 2), "目前市價": round(current_price, 2),
                     "總損益": round((current_price - avg_cost) * current_q, 2),
-                    "投報率_數值": roi_val*100,
+                    "投報率_數值": roi_val,
                     "5日趨勢": t5, "10日趨勢": t10, "20日趨勢": t20
                 })
         
         if summary:
             df_final = pd.DataFrame(summary)
-
-            # 設定紅漲綠跌
             def color_pnl_style(val):
                 color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
                 return f'color: {color}; font-weight: bold'
@@ -143,14 +174,10 @@ try:
                     "20日趨勢": st.column_config.LineChartColumn("20D 走勢", y_min=-1, y_max=1),
                 },
                 column_order=("股票代碼", "持股數量", "平均成本", "目前市價", "總損益", "投報率_數值", "5日趨勢", "10日趨勢", "20日趨勢"),
-                use_container_width=True, 
-                hide_index=True
+                use_container_width=True, hide_index=True
             )
         else:
             st.info("目前無實際持倉。")
-    else:
-        st.info("Sheet1 尚無資料。")
-
 except Exception as e:
     st.error(f"持倉分析載入失敗：{e}")
 

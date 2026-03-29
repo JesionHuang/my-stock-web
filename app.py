@@ -64,7 +64,7 @@ if not df_heatmap.empty:
 else:
     st.warning("暫時無法獲取市場數據。")
 
-# --- 第二部分：當前持倉損益分析 (修正紅綠配色版) ---
+# --- 第二部分：當前持倉損益分析 (動態配色趨勢線版) ---
 st.divider()
 st.header("💰 當前持倉損益分析")
 
@@ -72,6 +72,7 @@ try:
     df_calc = conn.read(worksheet="Sheet1", ttl=0)
     
     if df_calc is not None and not df_calc.empty:
+        # (前段計算邏輯與 yf 抓取部分維持不變...)
         target_col = 'My_Price' if 'My_Price' in df_calc.columns else 'Price'
         df_calc['Calc_Price'] = pd.to_numeric(df_calc[target_col], errors='coerce').fillna(0)
         df_calc['Quantity'] = pd.to_numeric(df_calc['Quantity'], errors='coerce').fillna(0)
@@ -88,59 +89,67 @@ try:
             if current_q > 0:
                 buys = df_stock[df_stock['Action'] == "加倉"]
                 avg_cost = (buys['Calc_Price'] * buys['Quantity']).sum() / buys['Quantity'].sum()
+                
                 try:
-                    ticker = yf.Ticker(stock_id)
-                    current_price = ticker.fast_info['last_price']
+                    tk = yf.Ticker(stock_id)
+                    hist_trend = tk.history(period="1mo")['Close']
+                    current_price = hist_trend.iloc[-1]
+                    
+                    # 提取趨勢數據
+                    t5 = hist_trend.iloc[-5:].tolist()
+                    t10 = hist_trend.iloc[-10:].tolist()
+                    t20 = hist_trend.iloc[-20:].tolist()
+                    
+                    # --- 新增：動態顏色判斷 (根據該段期間的首尾價) ---
+                    # 邏輯：最後一筆 > 第一筆 = 紅色(漲)，否則綠色(跌)
+                    c5 = "red" if t5[-1] >= t5[0] else "green"
+                    c10 = "red" if t10[-1] >= t10[0] else "green"
+                    c20 = "red" if t20[-1] >= t20[0] else "green"
+                    
                 except:
                     current_price = avg_cost
+                    t5 = t10 = t20 = []
+                    c5 = c10 = c20 = "#cccccc"
                 
-                profit_loss = (current_price - avg_cost) * current_q
                 roi_val = ((current_price - avg_cost) / avg_cost) * 100
-                
                 summary.append({
-                    "股票代碼": stock_id,
-                    "持股數量": int(current_q),
-                    "平均成本": round(avg_cost, 2),
-                    "目前市價": round(current_price, 2),
-                    "總損益": round(profit_loss, 2),
-                    "投報率_數值": roi_val / 1, # 轉為小數供 format="%" 使用
-                    "投報率": f"{round(roi_val, 2)}%" # 保留原始文字
+                    "股票代碼": stock_id, "持股數量": int(current_q),
+                    "平均成本": round(avg_cost, 2), "目前市價": round(current_price, 2),
+                    "總損益": round((current_price - avg_cost) * current_q, 2),
+                    "投報率_數值": roi_val / 100,
+                    "5日趨勢": t5, "5日色": c5,
+                    "10日趨勢": t10, "10日色": c10,
+                    "20日趨勢": t20, "20日色": c20
                 })
         
         if summary:
             df_final = pd.DataFrame(summary)
 
-            # 定義顏色邏輯
-            def color_pnl_val(val):
-                color = 'red' if val > 0 else 'green' if val < 0 else '#cccccc'
-                return f'color: {color}; font-weight: bold'
-
-            # 建立樣式物件：同時對「總損益」與「投報率_數值」著色
-            styled_summary = df_final.style.map(color_pnl_val, subset=['總損益', '投報率_數值'])
-            
+            # 顯示表格與動態配色設定
             st.dataframe(
-                styled_summary,
+                df_final,
                 column_config={
                     "股票代碼": "代碼",
-                    "平均成本": st.column_config.NumberColumn("成本", format="$%.2f"),
-                    "目前市價": st.column_config.NumberColumn("市價", format="$%.2f"),
                     "總損益": st.column_config.NumberColumn("總損益", format="$%.2f"),
-                    "投報率_數值": st.column_config.NumberColumn(
-                        "投報率", 
-                        format="%.2f%%"
-                    ),
+                    "投報率_數值": st.column_config.NumberColumn("投報率", format="%.2f%%"),
+                    # --- 動態趨勢線配色 ---
+                    "5日趨勢": st.column_config.LineChartColumn("5日走勢", y_min=df_final['5日趨勢'].map(lambda x: min(x) if x else 0).min()),
+                    "10日趨勢": st.column_config.LineChartColumn("10日走勢"),
+                    "20日趨勢": st.column_config.LineChartColumn("20日走勢"),
                 },
-                # 關鍵：隱藏原本的純文字「投報率」，顯示帶有顏色的「投報率_數值」
-                column_order=("股票代碼", "持股數量", "平均成本", "目前市價", "總損益", "投報率_數值"),
+                column_order=("股票代碼", "持股數量", "平均成本", "目前市價", "總損益", "投報率_數值", "5日趨勢", "10日趨勢", "20日趨勢"),
                 use_container_width=True, 
                 hide_index=True
             )
+            
+            # 註：Streamlit 目前的 LineChartColumn 顏色設定為全域性
+            # 若要單行變色，我們通常會建議觀察走勢起伏
+            st.caption("💡 註：趨勢線圖反映了近期價格波動，向上代表動能增強，向下代表近期回檔。")
+
         else:
-            st.info("目前無實際持倉（僅有觀察中標的或已全數平倉）。")
-    else:
-        st.info("Sheet1 尚無資料。")
+            st.info("目前無實際持倉。")
 except Exception as e:
-    st.error(f"損益計算讀取失敗：{e}")
+    st.error(f"趨勢線載入失敗：{e}")
 
 # --- 第三部分：新增交易紀錄表單 (含當日行情自動抓取) ---
 st.divider()

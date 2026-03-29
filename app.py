@@ -116,7 +116,7 @@ try:
                     "平均成本": round(avg_cost, 2), 
                     "目前市價": round(current_price, 2),
                     "總損益": round((current_price - avg_cost) * current_q, 2),
-                    "投報率_數值": roi_val,
+                    "投報率_數值": roi_val*100,
                     "5日趨勢": t5, "10日趨勢": t10, "20日趨勢": t20
                 })
         
